@@ -58,7 +58,8 @@ func runTrunk(cfg *config.Config) error {
 	}
 
 	if err := git.CheckoutBranch(trunk); err != nil {
-		return err
+		reportCheckoutFailure(cfg, trunk, err)
+		return ErrSilent
 	}
 
 	cfg.Successf("Switched to %s", trunk)

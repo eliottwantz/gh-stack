@@ -42,7 +42,7 @@ Merged and queued branches are automatically skipped.`,
 }
 
 func runPush(cfg *config.Config, opts *pushOptions) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack

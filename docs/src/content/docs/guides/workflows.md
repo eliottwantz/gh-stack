@@ -391,6 +391,76 @@ gh stack submit
 
 For a comprehensive guide on all modify operations, see the [Restructuring Stacks](/gh-stack/guides/modify/) guide.
 
+## Working with Git Worktrees
+
+A common way to work on a stack — especially when several AI agents work on it at once — is one [git worktree](https://git-scm.com/docs/git-worktree) per pull request, so every layer has its own directory, build output, and running processes:
+
+```sh
+gh stack init feat/auth feat/api feat/ui
+
+git worktree add ../auth feat/auth
+git worktree add ../api feat/api
+git worktree add ../ui feat/ui
+```
+
+`gh stack` supports this directly. Stack metadata lives in the repository's shared git directory, so a stack created in one worktree is visible from all of them — `gh stack init`, `gh stack view`, and `gh stack checkout` work the same wherever you run them.
+
+### Rebasing branches that live in other worktrees
+
+Git refuses to check out, rebase, or force-update a branch that another worktree has checked out. Instead of checking branches out, `gh stack sync` and `gh stack rebase` run each rebase **inside the worktree that owns the branch**:
+
+```sh
+# From ../ui, after fixing something in feat/auth
+gh stack sync
+# ✓ Rebased feat/auth onto main (in /Users/you/auth)
+# ✓ Rebased feat/api onto feat/auth (in /Users/you/api)
+# ✓ Rebased feat/ui onto feat/api
+```
+
+Each worktree's working tree follows the rewrite, so none of them is left sitting on a commit that no longer exists.
+
+Before rewriting anything, both commands check that the other worktrees are in a state where they can be rebased. If one has uncommitted changes or a rebase in progress, the command stops before touching any branch:
+
+```sh
+gh stack sync
+# ✗ some branches are checked out in worktrees that cannot be rebased right now:
+#   feat/api — uncommitted changes in /Users/you/api
+#   Commit, stash, or finish the work in those worktrees, then run this command again.
+```
+
+Nothing has been rewritten at that point, so committing or stashing in the named worktree and rerunning is all that's needed.
+
+### Conflicts in another worktree
+
+A conflict is resolved in the worktree where the rebase actually stopped — that's where the conflicted files and the rebase state are:
+
+```sh
+gh stack rebase
+# ⚠ Rebasing feat/api onto feat/auth (in /Users/you/api) — conflict
+#
+# Conflicted files:
+#   C /Users/you/api/routes.go (lines 12–18)
+# ...
+# Resolve conflicts on feat/api in /Users/you/api, then run `gh stack rebase --continue` (from any worktree)
+```
+
+Fix the files and `git add` them in that directory. `gh stack rebase --continue` and `gh stack rebase --abort` can then be run from any worktree of the repository — they know which worktree the rebase is in, and `--abort` restores every branch to its pre-rebase state wherever it lives.
+
+### Commands that need a branch to be free
+
+Two things still require branches not to be checked out elsewhere:
+
+- **`gh stack modify`** renames, drops, reorders, and folds branches, which can't be delegated to another worktree. It lists any stack branch another worktree holds and stops, so you can switch that worktree to another branch or `git worktree remove` it.
+- **`gh stack sync --prune`** skips deleting merged branches that a worktree still has checked out, and says so. Remove the worktree to prune them.
+
+Navigation commands (`checkout`, `switch`, `up`, `down`, `top`, `bottom`, `trunk`) don't move you between worktrees. When the branch you asked for belongs to another one, they tell you where it is:
+
+```sh
+gh stack down
+# ✗ feat/auth is checked out in another worktree
+#   Work on it there: `cd /Users/you/auth`
+```
+
 ## Using AI Agents with Stacks
 
 AI coding agents (like GitHub Copilot) can create and manage Stacked PRs on your behalf. Install the gh-stack skill to give them the context they need:

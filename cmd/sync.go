@@ -141,14 +141,19 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 		currentBranch = cb
 	}
 
+	// Branches of this stack that other worktrees have checked out must be
+	// updated from inside those worktrees. Built after reconciling, since that
+	// step can add branches and move HEAD.
+	worktrees := newWorktreeIndex(currentBranch)
+
 	// --- Step 2: Resolve trunk ---
-	trunk, err := resolveTrunkTarget(cfg, s, remote, currentBranch)
+	trunk, err := resolveTrunkTarget(cfg, s, remote, currentBranch, worktrees)
 	if err != nil {
 		return err
 	}
 
 	// --- Step 2b: Fast-forward stack branches behind their remote tracking branch ---
-	updatedBranches := fastForwardBranches(cfg, s, remote, currentBranch)
+	updatedBranches := fastForwardBranches(cfg, s, remote, currentBranch, worktrees)
 
 	// --- Step 3: Cascade rebase ---
 	needsRebase := trunk.Moved || len(updatedBranches) > 0 || stackNeedsRebase(s, trunk.Ref)
@@ -161,6 +166,13 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 		// Sync PR state to detect merged PRs before rebasing.
 		_ = syncStackPRs(cfg, s)
 
+		// A cascade that dies halfway has already rewritten branches, so make
+		// sure every worktree involved can be rebased before starting.
+		if err := checkWorktreesReady(cfg, worktrees, activeBranchNames(s)); err != nil {
+			stack.SaveNonBlocking(gitDir, sf)
+			return err
+		}
+
 		originalRefs, err = resolveOriginalRefs(s)
 		if err != nil {
 			cfg.Warningf("Could not resolve branch SHAs — skipping rebase: %v", err)
@@ -172,12 +184,13 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 				StartAbsIdx:  0,
 				OriginalRefs: originalRefs,
 				TrunkRef:     trunk.Ref,
+				Worktrees:    worktrees,
 			})
 
 			if result.Err != nil {
 				cfg.Errorf("%v", result.Err)
 				if result.Rebased {
-					restoreRebaseRefs(cfg, currentBranch, originalRefs)
+					restoreRebaseRefs(cfg, currentBranch, originalRefs, worktrees)
 				} else {
 					_ = git.CheckoutBranch(currentBranch)
 				}
@@ -186,14 +199,17 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 			}
 
 			if result.Conflicted {
-				// Abort and restore everything — sync is non-interactive.
-				if git.IsRebaseInProgress() {
-					_ = git.RebaseAbort()
+				// Abort and restore everything — sync is non-interactive. The
+				// conflicted rebase is running in whichever worktree owns the
+				// branch, so it must be aborted there.
+				if git.IsRebaseInProgressIn(result.ConflictDir) {
+					_ = git.RebaseAbortIn(result.ConflictDir)
 				}
-				restoreErrors := restoreBranches(originalRefs)
+				restoreErrors := restoreBranches(originalRefs, worktrees)
 				_ = git.CheckoutBranch(currentBranch)
 
-				cfg.Errorf("Conflict detected rebasing %s onto %s", result.ConflictBranch, result.ConflictBase)
+				cfg.Errorf("Conflict detected rebasing %s onto %s%s", result.ConflictBranch, result.ConflictBase,
+					worktreeSuffix(result.ConflictDir))
 				reportRestoreStatus(cfg, restoreErrors)
 				cfg.Printf("  Run `%s` to resolve conflicts interactively.",
 					cfg.ColorCyan("gh stack rebase"))
@@ -215,7 +231,7 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 		_ = git.CheckoutBranch(currentBranch)
 		reportUnstacked(cfg, trunk.Ref, unstacked)
 		if rebased && originalRefs != nil {
-			restoreRebaseRefs(cfg, currentBranch, originalRefs)
+			restoreRebaseRefs(cfg, currentBranch, originalRefs, worktrees)
 		}
 		stack.SaveNonBlocking(gitDir, sf)
 		return ErrSilent
@@ -305,7 +321,7 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 		merged := s.MergedBranches()
 		var prunableCount int
 		for _, b := range merged {
-			if git.BranchExists(b.Branch) {
+			if git.BranchExists(b.Branch) && worktrees.DirFor(b.Branch) == "" {
 				prunableCount++
 			}
 		}
@@ -331,9 +347,16 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 		merged := s.MergedBranches()
 		var prunable []string
 		for _, b := range merged {
-			if git.BranchExists(b.Branch) {
-				prunable = append(prunable, b.Branch)
+			if !git.BranchExists(b.Branch) {
+				continue
 			}
+			// git refuses to delete a branch another worktree has checked out,
+			// and that worktree would be left on a dangling branch anyway.
+			if dir := worktrees.DirFor(b.Branch); dir != "" {
+				cfg.Warningf("Not pruning %s — it is checked out in %s", b.Branch, dir)
+				continue
+			}
+			prunable = append(prunable, b.Branch)
 		}
 
 		if len(prunable) > 0 {
@@ -348,7 +371,8 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 			if needsSwitch {
 				switchTarget := trunk.Branch
 				for _, b := range s.Branches {
-					if !b.IsSkipped() {
+					// Another worktree's branch cannot be checked out here.
+					if !b.IsSkipped() && worktrees.DirFor(b.Branch) == "" {
 						switchTarget = b.Branch
 						break
 					}
@@ -407,13 +431,22 @@ func runSync(cfg *config.Config, opts *syncOptions) error {
 }
 
 // restoreBranches resets each branch to its original SHA, collecting any errors.
-func restoreBranches(originalRefs map[string]string) []string {
+// Branches held by another worktree are reset inside it: they cannot be checked
+// out here, and resetting there also rewinds that worktree's working tree to
+// match the branch it has checked out.
+func restoreBranches(originalRefs map[string]string, worktrees *worktreeIndex) []string {
 	var errors []string
 	for branch, sha := range originalRefs {
 		if !git.BranchExists(branch) {
 			continue
 		}
 		if currentSHA, err := git.RevParse(branch); err == nil && currentSHA == sha {
+			continue
+		}
+		if dir := worktrees.DirFor(branch); dir != "" {
+			if err := git.ResetHardIn(dir, sha); err != nil {
+				errors = append(errors, fmt.Sprintf("reset %s in %s: %s", branch, dir, err))
+			}
 			continue
 		}
 		if err := git.CheckoutBranch(branch); err != nil {
@@ -427,8 +460,8 @@ func restoreBranches(originalRefs map[string]string) []string {
 	return errors
 }
 
-func restoreRebaseRefs(cfg *config.Config, originalBranch string, originalRefs map[string]string) {
-	restoreErrors := restoreBranches(originalRefs)
+func restoreRebaseRefs(cfg *config.Config, originalBranch string, originalRefs map[string]string, worktrees *worktreeIndex) {
+	restoreErrors := restoreBranches(originalRefs, worktrees)
 	_ = git.CheckoutBranch(originalBranch)
 	reportRestoreStatus(cfg, restoreErrors)
 }

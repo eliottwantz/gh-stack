@@ -7,6 +7,8 @@ import "fmt"
 // Ops method call. When nil, a reasonable default is returned.
 type MockOps struct {
 	GitDirFn                 func() (string, error)
+	CommonDirFn              func() (string, error)
+	WorktreesFn              func() ([]Worktree, error)
 	RootDirFn                func() (string, error)
 	CurrentBranchFn          func() (string, error)
 	BranchExistsFn           func(string) bool
@@ -63,6 +65,20 @@ type MockOps struct {
 	IsCherryPickInProgressFn func() bool
 	HasUncommittedChangesFn  func() (bool, error)
 	LogMergesFn              func(string, string) ([]CommitInfo, error)
+
+	// Worktree-scoped hooks. When one is nil, the call falls back to its
+	// unscoped counterpart above and the directory is ignored, so tests that
+	// do not exercise worktrees need not set them.
+	RebaseInDirFn                func(dir, base string, opts RebaseOpts) error
+	RebaseOntoInDirFn            func(dir, newBase, oldBase, branch string, opts RebaseOpts) error
+	RebaseContinueInDirFn        func(dir string, opts RebaseOpts) error
+	RebaseAbortInDirFn           func(dir string) error
+	IsRebaseInProgressInDirFn    func(dir string) bool
+	RebasingBranchInDirFn        func(dir string) (string, error)
+	ConflictedFilesInDirFn       func(dir string) ([]string, error)
+	ResetHardInDirFn             func(dir, ref string) error
+	MergeFFInDirFn               func(dir, target string) error
+	HasUncommittedChangesInDirFn func(dir string) (bool, error)
 }
 
 var _ Ops = (*MockOps)(nil)
@@ -72,6 +88,22 @@ func (m *MockOps) GitDir() (string, error) {
 		return m.GitDirFn()
 	}
 	return "/tmp/fake-git-dir", nil
+}
+
+// CommonDir falls back to GitDir so tests that stub only GitDirFn keep
+// resolving gh-stack state to the same directory.
+func (m *MockOps) CommonDir() (string, error) {
+	if m.CommonDirFn != nil {
+		return m.CommonDirFn()
+	}
+	return m.GitDir()
+}
+
+func (m *MockOps) Worktrees() ([]Worktree, error) {
+	if m.WorktreesFn != nil {
+		return m.WorktreesFn()
+	}
+	return nil, nil
 }
 
 func (m *MockOps) RootDir() (string, error) {
@@ -473,4 +505,78 @@ func (m *MockOps) LogMerges(base, head string) ([]CommitInfo, error) {
 		return m.LogMergesFn(base, head)
 	}
 	return nil, nil
+}
+
+// --- Worktree-scoped operations ---
+
+func (m *MockOps) RebaseInDir(dir, base string, opts RebaseOpts) error {
+	if m.RebaseInDirFn != nil {
+		return m.RebaseInDirFn(dir, base, opts)
+	}
+	return m.Rebase(base, opts)
+}
+
+func (m *MockOps) RebaseOntoInDir(dir, newBase, oldBase, branch string, opts RebaseOpts) error {
+	if m.RebaseOntoInDirFn != nil {
+		return m.RebaseOntoInDirFn(dir, newBase, oldBase, branch, opts)
+	}
+	return m.RebaseOnto(newBase, oldBase, branch, opts)
+}
+
+func (m *MockOps) RebaseContinueInDir(dir string, opts RebaseOpts) error {
+	if m.RebaseContinueInDirFn != nil {
+		return m.RebaseContinueInDirFn(dir, opts)
+	}
+	return m.RebaseContinue(opts)
+}
+
+func (m *MockOps) RebaseAbortInDir(dir string) error {
+	if m.RebaseAbortInDirFn != nil {
+		return m.RebaseAbortInDirFn(dir)
+	}
+	return m.RebaseAbort()
+}
+
+func (m *MockOps) IsRebaseInProgressInDir(dir string) bool {
+	if m.IsRebaseInProgressInDirFn != nil {
+		return m.IsRebaseInProgressInDirFn(dir)
+	}
+	return m.IsRebaseInProgress()
+}
+
+// RebasingBranchInDir has no unscoped counterpart: without a hook, no worktree
+// is rebasing anything.
+func (m *MockOps) RebasingBranchInDir(dir string) (string, error) {
+	if m.RebasingBranchInDirFn != nil {
+		return m.RebasingBranchInDirFn(dir)
+	}
+	return "", nil
+}
+
+func (m *MockOps) ConflictedFilesInDir(dir string) ([]string, error) {
+	if m.ConflictedFilesInDirFn != nil {
+		return m.ConflictedFilesInDirFn(dir)
+	}
+	return m.ConflictedFiles()
+}
+
+func (m *MockOps) ResetHardInDir(dir, ref string) error {
+	if m.ResetHardInDirFn != nil {
+		return m.ResetHardInDirFn(dir, ref)
+	}
+	return m.ResetHard(ref)
+}
+
+func (m *MockOps) MergeFFInDir(dir, target string) error {
+	if m.MergeFFInDirFn != nil {
+		return m.MergeFFInDirFn(dir, target)
+	}
+	return m.MergeFF(target)
+}
+
+func (m *MockOps) HasUncommittedChangesInDir(dir string) (bool, error) {
+	if m.HasUncommittedChangesInDirFn != nil {
+		return m.HasUncommittedChangesInDirFn(dir)
+	}
+	return m.HasUncommittedChanges()
 }

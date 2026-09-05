@@ -35,7 +35,13 @@ type CommitInfo struct {
 
 // run executes an arbitrary git command via the client and returns trimmed stdout.
 func run(args ...string) (string, error) {
-	cmd, err := client.Command(context.Background(), args...)
+	return runIn("", args...)
+}
+
+// runIn executes a git command inside dir and returns trimmed stdout.
+// An empty dir runs in the process's working directory.
+func runIn(dir string, args ...string) (string, error) {
+	cmd, err := client.Command(context.Background(), inDir(dir, args)...)
 	if err != nil {
 		return "", err
 	}
@@ -48,11 +54,25 @@ func run(args ...string) (string, error) {
 
 // runSilent executes a git command via the client and only returns an error.
 func runSilent(args ...string) error {
-	cmd, err := client.Command(context.Background(), args...)
+	return runSilentIn("", args...)
+}
+
+// runSilentIn executes a git command inside dir and only returns an error.
+func runSilentIn(dir string, args ...string) error {
+	cmd, err := client.Command(context.Background(), inDir(dir, args)...)
 	if err != nil {
 		return err
 	}
 	return cmd.Run()
+}
+
+// inDir prefixes git arguments with `-C <dir>` so the command runs in another
+// worktree. An empty dir leaves the arguments untouched.
+func inDir(dir string, args []string) []string {
+	if dir == "" {
+		return args
+	}
+	return append([]string{"-C", dir}, args...)
 }
 
 // runInteractive runs a git command with stdin/stdout/stderr connected to
@@ -84,46 +104,49 @@ func IsRebaseStartError(err error) bool {
 	return errors.As(err, &startErr)
 }
 
-func runRebaseCommand(args []string, opts RebaseOpts) error {
-	if IsRebaseInProgress() {
+// runRebaseCommand runs a rebase inside dir ("" for the current worktree).
+// Rebase state is per-worktree, so progress is always checked in the same dir
+// the rebase runs in.
+func runRebaseCommand(dir string, args []string, opts RebaseOpts) error {
+	if IsRebaseInProgressIn(dir) {
 		return &RebaseStartError{Err: errors.New("a rebase is already in progress")}
 	}
-	err := runSilent(args...)
+	err := runSilentIn(dir, args...)
 	if err == nil {
 		return nil
 	}
-	err = tryAutoResolveRebase(err, opts)
-	if err != nil && !IsRebaseInProgress() {
+	err = tryAutoResolveRebase(dir, err, opts)
+	if err != nil && !IsRebaseInProgressIn(dir) {
 		return &RebaseStartError{Err: err}
 	}
 	return err
 }
 
 // rebaseContinueOnce runs a single git rebase --continue without auto-resolve.
-func rebaseContinueOnce(opts RebaseOpts) error {
+func rebaseContinueOnce(dir string, opts RebaseOpts) error {
 	args := []string{"rebase"}
 	if opts.CommitterDateIsAuthorDate {
 		args = append(args, "--committer-date-is-author-date")
 	}
 	args = append(args, "--continue")
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", inDir(dir, args)...)
 	cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
 	return cmd.Run()
 }
 
 // tryAutoResolveRebase checks whether rerere has resolved all conflicts
-// from a failed rebase. If so, it auto-continues the rebase (potentially
+// from a failed rebase in dir. If so, it auto-continues the rebase (potentially
 // multiple times for multi-commit rebases). Returns originalErr if any
 // conflicts remain that need manual resolution.
-func tryAutoResolveRebase(originalErr error, opts RebaseOpts) error {
+func tryAutoResolveRebase(dir string, originalErr error, opts RebaseOpts) error {
 	for i := 0; i < 1000; i++ {
-		if !IsRebaseInProgress() {
+		if !IsRebaseInProgressIn(dir) {
 			if i == 0 {
 				return originalErr
 			}
 			return nil
 		}
-		conflicts, err := ConflictedFiles()
+		conflicts, err := ConflictedFilesIn(dir)
 		if err != nil {
 			return originalErr
 		}
@@ -131,7 +154,7 @@ func tryAutoResolveRebase(originalErr error, opts RebaseOpts) error {
 			return originalErr
 		}
 		// Rerere resolved all conflicts — auto-continue.
-		if rebaseContinueOnce(opts) == nil {
+		if rebaseContinueOnce(dir, opts) == nil {
 			return nil
 		}
 		// Continue hit another conflicting commit; loop to check
@@ -142,9 +165,24 @@ func tryAutoResolveRebase(originalErr error, opts RebaseOpts) error {
 
 // --- Public functions delegate through the ops interface ---
 
-// GitDir returns the path to the .git directory.
+// GitDir returns the path to the .git directory of the current worktree.
+// In a linked worktree this is .git/worktrees/<name> inside the main
+// repository, which is private to that worktree.
 func GitDir() (string, error) {
 	return ops.GitDir()
+}
+
+// CommonDir returns the git directory shared by every worktree of the
+// repository (the main worktree's .git). gh-stack keeps its state there so a
+// stack is visible from all worktrees. In a repository without linked
+// worktrees it is identical to GitDir().
+func CommonDir() (string, error) {
+	return ops.CommonDir()
+}
+
+// Worktrees lists the repository's working trees, including the main one.
+func Worktrees() ([]Worktree, error) {
+	return ops.Worktrees()
 }
 
 // RootDir returns the repository's root directory.
@@ -212,6 +250,16 @@ func Rebase(base string, opts RebaseOpts) error {
 	return ops.Rebase(base, opts)
 }
 
+// RebaseIn rebases the branch checked out in the worktree at dir onto base.
+// An empty dir means the current worktree, in which case it behaves exactly
+// like Rebase.
+func RebaseIn(dir, base string, opts RebaseOpts) error {
+	if dir == "" {
+		return ops.Rebase(base, opts)
+	}
+	return ops.RebaseInDir(dir, base, opts)
+}
+
 // EnableRerere enables git rerere (reuse recorded resolution) and
 // rerere.autoupdate (auto-stage resolved files) for the repository.
 func EnableRerere() error {
@@ -262,6 +310,16 @@ func RebaseOnto(newBase, oldBase, branch string, opts RebaseOpts) error {
 	return ops.RebaseOnto(newBase, oldBase, branch, opts)
 }
 
+// RebaseOntoIn performs a RebaseOnto inside the worktree at dir. git refuses to
+// rewrite a branch that is checked out in another worktree, so branches owned
+// by one must be rebased from inside it. An empty dir behaves like RebaseOnto.
+func RebaseOntoIn(dir, newBase, oldBase, branch string, opts RebaseOpts) error {
+	if dir == "" {
+		return ops.RebaseOnto(newBase, oldBase, branch, opts)
+	}
+	return ops.RebaseOntoInDir(dir, newBase, oldBase, branch, opts)
+}
+
 // RebaseContinue continues an in-progress rebase.
 // It sets GIT_EDITOR=true to prevent git from opening an interactive editor
 // for the commit message, which would cause the command to hang.
@@ -271,9 +329,27 @@ func RebaseContinue(opts RebaseOpts) error {
 	return ops.RebaseContinue(opts)
 }
 
+// RebaseContinueIn continues the rebase running in the worktree at dir.
+// An empty dir behaves like RebaseContinue.
+func RebaseContinueIn(dir string, opts RebaseOpts) error {
+	if dir == "" {
+		return ops.RebaseContinue(opts)
+	}
+	return ops.RebaseContinueInDir(dir, opts)
+}
+
 // RebaseAbort aborts an in-progress rebase.
 func RebaseAbort() error {
 	return ops.RebaseAbort()
+}
+
+// RebaseAbortIn aborts the rebase running in the worktree at dir.
+// An empty dir behaves like RebaseAbort.
+func RebaseAbortIn(dir string) error {
+	if dir == "" {
+		return ops.RebaseAbort()
+	}
+	return ops.RebaseAbortInDir(dir)
 }
 
 // IsRebaseInProgress checks whether a rebase is currently in progress.
@@ -281,9 +357,35 @@ func IsRebaseInProgress() bool {
 	return ops.IsRebaseInProgress()
 }
 
+// IsRebaseInProgressIn reports whether the worktree at dir has a rebase in
+// progress. Rebase state is per-worktree: a conflict raised while rebasing a
+// branch owned by another worktree is only visible there.
+func IsRebaseInProgressIn(dir string) bool {
+	if dir == "" {
+		return ops.IsRebaseInProgress()
+	}
+	return ops.IsRebaseInProgressInDir(dir)
+}
+
+// RebasingBranchIn returns the branch the worktree at dir is currently
+// rebasing, or "" when it has no rebase in progress. An empty dir inspects the
+// current worktree.
+func RebasingBranchIn(dir string) (string, error) {
+	return ops.RebasingBranchInDir(dir)
+}
+
 // ConflictedFiles returns the list of files that have merge conflicts.
 func ConflictedFiles() ([]string, error) {
 	return ops.ConflictedFiles()
+}
+
+// ConflictedFilesIn returns the conflicted files in the worktree at dir.
+// An empty dir behaves like ConflictedFiles.
+func ConflictedFilesIn(dir string) ([]string, error) {
+	if dir == "" {
+		return ops.ConflictedFiles()
+	}
+	return ops.ConflictedFilesInDir(dir)
 }
 
 // ConflictMarkerInfo holds the location of conflict markers in a file.
@@ -392,6 +494,15 @@ func ResetHard(ref string) error {
 	return ops.ResetHard(ref)
 }
 
+// ResetHardIn resets the branch checked out in the worktree at dir to ref.
+// An empty dir behaves like ResetHard.
+func ResetHardIn(dir, ref string) error {
+	if dir == "" {
+		return ops.ResetHard(ref)
+	}
+	return ops.ResetHardInDir(dir, ref)
+}
+
 // SetUpstreamTracking sets the upstream tracking branch.
 func SetUpstreamTracking(branch, remote string) error {
 	return ops.SetUpstreamTracking(branch, remote)
@@ -405,6 +516,16 @@ func UpstreamRemote(branch string) (string, error) {
 // MergeFF fast-forwards the currently checked-out branch using a merge.
 func MergeFF(target string) error {
 	return ops.MergeFF(target)
+}
+
+// MergeFFIn fast-forwards the branch checked out in the worktree at dir.
+// Use it instead of UpdateBranchRef for branches another worktree owns, which
+// git refuses to move from the outside. An empty dir behaves like MergeFF.
+func MergeFFIn(dir, target string) error {
+	if dir == "" {
+		return ops.MergeFF(target)
+	}
+	return ops.MergeFFInDir(dir, target)
 }
 
 // UpdateBranchRef moves a branch pointer to a new commit (for branches not currently checked out).
@@ -480,6 +601,15 @@ func CherryPickContinue() error {
 // HasUncommittedChanges returns true if the working tree has uncommitted changes.
 func HasUncommittedChanges() (bool, error) {
 	return ops.HasUncommittedChanges()
+}
+
+// HasUncommittedChangesIn reports whether the worktree at dir has uncommitted
+// changes. An empty dir behaves like HasUncommittedChanges.
+func HasUncommittedChangesIn(dir string) (bool, error) {
+	if dir == "" {
+		return ops.HasUncommittedChanges()
+	}
+	return ops.HasUncommittedChangesInDir(dir)
 }
 
 // LogMerges returns merge commits in the range base..head.

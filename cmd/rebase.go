@@ -27,8 +27,13 @@ type rebaseOptions struct {
 }
 
 type rebaseState struct {
-	CurrentBranchIndex        int               `json:"currentBranchIndex"`
-	ConflictBranch            string            `json:"conflictBranch"`
+	CurrentBranchIndex int      `json:"currentBranchIndex"`
+	ConflictBranch     string   `json:"conflictBranch"`
+	// ConflictWorktree is the worktree the interrupted rebase is running in,
+	// empty when it is the worktree the rebase was started from. Rebase state
+	// is private to a worktree, so --continue and --abort must be routed back
+	// to it no matter where they are run from.
+	ConflictWorktree          string            `json:"conflictWorktree,omitempty"`
 	RemainingBranches         []string          `json:"remainingBranches"`
 	OriginalBranch            string            `json:"originalBranch"`
 	OriginalRefs              map[string]string `json:"originalRefs"`
@@ -97,7 +102,7 @@ branch 3 onto branch 2, etc.).`,
 }
 
 func runRebase(cfg *config.Config, opts *rebaseOptions) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack
@@ -124,6 +129,10 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 	s := result.Stack
 	currentBranch := result.CurrentBranch
 
+	// Stack branches other worktrees have checked out are rebased inside those
+	// worktrees; git will not rewrite them from here.
+	worktrees := newWorktreeIndex(currentBranch)
+
 	// Enable git rerere so conflict resolutions are remembered.
 	if err := ensureRerere(cfg); errors.Is(err, errInterrupt) {
 		return ErrSilent
@@ -140,7 +149,7 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 			return ErrSilent
 		}
 
-		trunk, err = resolveTrunkTarget(cfg, s, remote, currentBranch)
+		trunk, err = resolveTrunkTarget(cfg, s, remote, currentBranch, worktrees)
 		if err != nil {
 			return err
 		}
@@ -150,7 +159,7 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 			cfg.Errorf("failed to fetch stack branches from %s: %v", remote, err)
 			return ErrSilent
 		}
-		fastForwardBranches(cfg, s, remote, currentBranch)
+		fastForwardBranches(cfg, s, remote, currentBranch, worktrees)
 	}
 
 	cfg.Printf("Stack detected: %s", s.DisplayChain())
@@ -192,6 +201,18 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 	// Sync PR state before rebase so we can detect merged PRs.
 	_ = syncStackPRs(cfg, s)
 
+	// Stop before the first rewrite if a worktree holding one of these branches
+	// is not in a state where git can rebase it.
+	rebaseNames := make([]string, 0, len(branchesToRebase))
+	for _, br := range branchesToRebase {
+		if !br.IsSkipped() {
+			rebaseNames = append(rebaseNames, br.Branch)
+		}
+	}
+	if err := checkWorktreesReady(cfg, worktrees, rebaseNames); err != nil {
+		return err
+	}
+
 	originalRefs, err := resolveOriginalRefs(s)
 	if err != nil {
 		return fmt.Errorf("resolving branch refs: %w", err)
@@ -222,12 +243,13 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 		OntoOldBase:               ontoOldBase,
 		CommitterDateIsAuthorDate: opts.committerDateIsAuthorDate,
 		TrunkRef:                  trunk.Ref,
+		Worktrees:                 worktrees,
 	})
 
 	if rebaseResult.Err != nil {
 		cfg.Errorf("%v", rebaseResult.Err)
 		if rebaseResult.Rebased {
-			restoreRebaseRefs(cfg, currentBranch, originalRefs)
+			restoreRebaseRefs(cfg, currentBranch, originalRefs, worktrees)
 		} else {
 			_ = git.CheckoutBranch(currentBranch)
 		}
@@ -235,11 +257,13 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 	}
 
 	if rebaseResult.Conflicted {
-		cfg.Warningf("Rebasing %s onto %s — conflict", rebaseResult.ConflictBranch, rebaseResult.ConflictBase)
+		cfg.Warningf("Rebasing %s onto %s%s — conflict", rebaseResult.ConflictBranch, rebaseResult.ConflictBase,
+			worktreeSuffix(rebaseResult.ConflictDir))
 
 		state := &rebaseState{
 			CurrentBranchIndex:        rebaseResult.ConflictIdx,
 			ConflictBranch:            rebaseResult.ConflictBranch,
+			ConflictWorktree:          rebaseResult.ConflictDir,
 			RemainingBranches:         rebaseResult.Remaining,
 			OriginalBranch:            currentBranch,
 			OriginalRefs:              originalRefs,
@@ -256,11 +280,10 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 			cfg.Warningf("failed to save rebase state: %s", err)
 		}
 
-		printConflictDetails(cfg, rebaseResult.ConflictBase)
+		printConflictDetails(cfg, rebaseResult.ConflictBase, rebaseResult.ConflictDir)
 		cfg.Printf("")
 
-		cfg.Printf("Resolve conflicts on %s, then run `%s`",
-			rebaseResult.ConflictBranch, cfg.ColorCyan("gh stack rebase --continue"))
+		reportConflictLocation(cfg, rebaseResult.ConflictBranch, rebaseResult.ConflictDir)
 		cfg.Printf("Or abort this operation with `%s`",
 			cfg.ColorCyan("gh stack rebase --abort"))
 		return ErrConflict
@@ -271,7 +294,7 @@ func runRebase(cfg *config.Config, opts *rebaseOptions) error {
 	if unstacked := verifyStacked(s, trunk.Ref, startIdx, endIdx); len(unstacked) > 0 {
 		reportUnstacked(cfg, trunk.Ref, unstacked)
 		if rebaseResult.Rebased {
-			restoreRebaseRefs(cfg, currentBranch, originalRefs)
+			restoreRebaseRefs(cfg, currentBranch, originalRefs, worktrees)
 		}
 		return ErrSilent
 	}
@@ -355,15 +378,23 @@ func continueRebase(cfg *config.Config, gitDir string) error {
 		conflictBranch = s.Branches[state.CurrentBranchIndex].Branch
 	}
 
-	cfg.Printf("Continuing rebase of stack, resuming from %s to %s",
-		conflictBranch, s.Branches[len(s.Branches)-1].Branch)
+	cfg.Printf("Continuing rebase of stack, resuming from %s to %s%s",
+		conflictBranch, s.Branches[len(s.Branches)-1].Branch, worktreeSuffix(state.ConflictWorktree))
 
-	if git.IsRebaseInProgress() {
+	// The interrupted rebase lives in the worktree that owns the conflicting
+	// branch, which is not necessarily this one.
+	if git.IsRebaseInProgressIn(state.ConflictWorktree) {
 		rebaseOpts := git.RebaseOpts{CommitterDateIsAuthorDate: state.CommitterDateIsAuthorDate}
-		if err := git.RebaseContinue(rebaseOpts); err != nil {
-			return fmt.Errorf("rebase continue failed — resolve remaining conflicts and try again: %w", err)
+		if err := git.RebaseContinueIn(state.ConflictWorktree, rebaseOpts); err != nil {
+			return fmt.Errorf("rebase continue failed — resolve remaining conflicts%s and try again: %w",
+				worktreeSuffix(state.ConflictWorktree), err)
 		}
 	}
+
+	// Rebuild the worktree map for the remaining cascade. The conflicting
+	// branch is no longer detached now that its rebase finished.
+	currentBranch, _ := git.CurrentBranch()
+	worktrees := newWorktreeIndex(currentBranch)
 
 	var baseBranch string
 	if state.UseOnto {
@@ -380,7 +411,7 @@ func continueRebase(cfg *config.Config, gitDir string) error {
 	} else {
 		baseBranch = trunkRef
 	}
-	cfg.Successf("Rebased %s onto %s", conflictBranch, baseBranch)
+	cfg.Successf("Rebased %s onto %s%s", conflictBranch, baseBranch, worktreeSuffix(state.ConflictWorktree))
 
 	// Rebase remaining branches using the shared cascade helper.
 	if len(state.RemainingBranches) > 0 {
@@ -411,20 +442,23 @@ func continueRebase(cfg *config.Config, gitDir string) error {
 			OntoOldBase:               state.OntoOldBase,
 			CommitterDateIsAuthorDate: state.CommitterDateIsAuthorDate,
 			TrunkRef:                  trunkBase,
+			Worktrees:                 worktrees,
 		})
 
 		if result.Err != nil {
 			cfg.Errorf("%v", result.Err)
-			restoreRebaseRefs(cfg, state.OriginalBranch, state.OriginalRefs)
+			restoreRebaseRefs(cfg, state.OriginalBranch, state.OriginalRefs, worktrees)
 			clearRebaseState(gitDir)
 			return ErrSilent
 		}
 
 		if result.Conflicted {
-			cfg.Warningf("Rebasing %s onto %s — conflict", result.ConflictBranch, result.ConflictBase)
+			cfg.Warningf("Rebasing %s onto %s%s — conflict", result.ConflictBranch, result.ConflictBase,
+				worktreeSuffix(result.ConflictDir))
 
 			state.CurrentBranchIndex = result.ConflictIdx
 			state.ConflictBranch = result.ConflictBranch
+			state.ConflictWorktree = result.ConflictDir
 			state.RemainingBranches = result.Remaining
 			state.UseOnto = result.NeedsOnto
 			state.OntoOldBase = result.OntoOldBase
@@ -432,10 +466,9 @@ func continueRebase(cfg *config.Config, gitDir string) error {
 				cfg.Warningf("failed to save rebase state: %s", err)
 			}
 
-			printConflictDetails(cfg, result.ConflictBase)
+			printConflictDetails(cfg, result.ConflictBase, result.ConflictDir)
 			cfg.Printf("")
-			cfg.Printf("Resolve conflicts on %s, then run `%s`",
-				result.ConflictBranch, cfg.ColorCyan("gh stack rebase --continue"))
+			reportConflictLocation(cfg, result.ConflictBranch, result.ConflictDir)
 			cfg.Printf("Or abort this operation with `%s`",
 				cfg.ColorCyan("gh stack rebase --abort"))
 			return ErrConflict
@@ -453,7 +486,7 @@ func continueRebase(cfg *config.Config, gitDir string) error {
 	}
 	if unstacked := verifyStacked(s, trunkBase, verifyStart, verifyEnd); len(unstacked) > 0 {
 		reportUnstacked(cfg, trunkRef, unstacked)
-		restoreRebaseRefs(cfg, state.OriginalBranch, state.OriginalRefs)
+		restoreRebaseRefs(cfg, state.OriginalBranch, state.OriginalRefs, worktrees)
 		clearRebaseState(gitDir)
 		return ErrSilent
 	}
@@ -485,12 +518,25 @@ func abortRebase(cfg *config.Config, gitDir string) error {
 		return ErrSilent
 	}
 
-	if git.IsRebaseInProgress() {
-		_ = git.RebaseAbort()
+	// Abort where the rebase actually stopped: its state lives in the worktree
+	// that owns the conflicting branch.
+	if git.IsRebaseInProgressIn(state.ConflictWorktree) {
+		_ = git.RebaseAbortIn(state.ConflictWorktree)
 	}
+
+	// The abort above reattached the conflicting branch, so the worktree map is
+	// built after it to see that branch again.
+	currentBranch, _ := git.CurrentBranch()
+	worktrees := newWorktreeIndex(currentBranch)
 
 	var restoreErrors []string
 	for branch, sha := range state.OriginalRefs {
+		if dir := worktrees.DirFor(branch); dir != "" {
+			if err := git.ResetHardIn(dir, sha); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Sprintf("reset %s in %s: %s", branch, dir, err))
+			}
+			continue
+		}
 		if err := git.CheckoutBranch(branch); err != nil {
 			restoreErrors = append(restoreErrors, fmt.Sprintf("checkout %s: %s", branch, err))
 			continue
@@ -542,24 +588,46 @@ func clearRebaseState(gitDir string) {
 	_ = os.Remove(filepath.Join(gitDir, rebaseStateFile))
 }
 
-func printConflictDetails(cfg *config.Config, branch string) {
-	printConflictDetailsWithContinue(cfg, branch, "gh stack rebase --continue")
+// reportConflictLocation tells the user where to resolve the conflict. When the
+// branch belongs to another worktree, the files to edit are in that directory,
+// even though `gh stack rebase --continue` still works from anywhere.
+func reportConflictLocation(cfg *config.Config, branch, dir string) {
+	if dir == "" {
+		cfg.Printf("Resolve conflicts on %s, then run `%s`",
+			branch, cfg.ColorCyan("gh stack rebase --continue"))
+		return
+	}
+	cfg.Printf("Resolve conflicts on %s in %s, then run `%s` (from any worktree)",
+		branch, dir, cfg.ColorCyan("gh stack rebase --continue"))
 }
 
-func printConflictDetailsWithContinue(cfg *config.Config, branch string, continueCmd string) {
-	files, err := git.ConflictedFiles()
+func printConflictDetails(cfg *config.Config, branch, dir string) {
+	printConflictDetailsWithContinue(cfg, branch, dir, "gh stack rebase --continue")
+}
+
+// printConflictDetailsWithContinue lists the conflicted files of the rebase
+// running in dir ("" for the current worktree) and explains how to resolve them.
+func printConflictDetailsWithContinue(cfg *config.Config, branch, dir string, continueCmd string) {
+	files, err := git.ConflictedFilesIn(dir)
 	if err == nil && len(files) > 0 {
 		cfg.Printf("")
 		cfg.Printf("%s", cfg.ColorBold("Conflicted files:"))
 		for _, f := range files {
-			info, err := git.FindConflictMarkers(f)
+			// git reports paths relative to the worktree it ran in, so they are
+			// resolved against that worktree to be readable — and printed that
+			// way, since the user has to open them there.
+			path := f
+			if dir != "" {
+				path = filepath.Join(dir, f)
+			}
+			info, err := git.FindConflictMarkers(path)
 			if err != nil || len(info.Sections) == 0 {
-				cfg.Printf("  %s %s", cfg.ColorWarning("C"), f)
+				cfg.Printf("  %s %s", cfg.ColorWarning("C"), path)
 				continue
 			}
 			for _, sec := range info.Sections {
 				cfg.Printf("  %s %s (lines %d–%d)",
-					cfg.ColorWarning("C"), f, sec.StartLine, sec.EndLine)
+					cfg.ColorWarning("C"), path, sec.StartLine, sec.EndLine)
 			}
 		}
 	}

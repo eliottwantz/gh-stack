@@ -82,7 +82,7 @@ omitted.`,
 // the GitHub API to discover remote stacks, then tries as a branch name.
 // Branch names resolve locally first and then against stacks on GitHub.
 func runCheckout(cfg *config.Config, opts *checkoutOptions) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack
@@ -153,7 +153,7 @@ func runCheckout(cfg *config.Config, opts *checkoutOptions) error {
 	}
 
 	if err := git.CheckoutBranch(targetBranch); err != nil {
-		cfg.Errorf("failed to checkout %s: %v", targetBranch, err)
+		reportCheckoutFailure(cfg, targetBranch, err)
 		return ErrSilent
 	}
 

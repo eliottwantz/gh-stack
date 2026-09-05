@@ -65,7 +65,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 
 		cfg, _, _ := config.NewTestConfig()
 		s := &stack.Stack{Trunk: stack.BranchRef{Branch: "origin/main"}}
-		target, err := resolveTrunkTarget(cfg, s, "origin", "b1")
+		target, err := resolveTrunkTarget(cfg, s, "origin", "b1", nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "main", fetchedBranch)
@@ -87,7 +87,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 		cfg, _, _ := config.NewTestConfig()
 		target, err := resolveTrunkTarget(cfg, &stack.Stack{
 			Trunk: stack.BranchRef{Branch: "main"},
-		}, "origin", "b1")
+		}, "origin", "b1", nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "origin/main", target.Ref)
@@ -105,7 +105,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 		cfg, _, _ := config.NewTestConfig()
 		target, err := resolveTrunkTarget(cfg, &stack.Stack{
 			Trunk: stack.BranchRef{Branch: "main"},
-		}, "origin", "b1")
+		}, "origin", "b1", nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "main", target.Ref)
@@ -124,7 +124,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 		cfg, _, _ := config.NewTestConfig()
 		target, err := resolveTrunkTarget(cfg, &stack.Stack{
 			Trunk: stack.BranchRef{Branch: "main"},
-		}, "origin", "b1")
+		}, "origin", "b1", nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "main", target.Ref)
@@ -143,7 +143,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 		cfg, _, _ := config.NewTestConfig()
 		_, err := resolveTrunkTarget(cfg, &stack.Stack{
 			Trunk: stack.BranchRef{Branch: "main"},
-		}, "origin", "b1")
+		}, "origin", "b1", nil)
 
 		assert.ErrorIs(t, err, ErrSilent)
 	})
@@ -159,7 +159,7 @@ func TestResolveTrunkTarget(t *testing.T) {
 		cfg, _, _ := config.NewTestConfig()
 		_, err := resolveTrunkTarget(cfg, &stack.Stack{
 			Trunk: stack.BranchRef{Branch: "main"},
-		}, "origin", "b1")
+		}, "origin", "b1", nil)
 
 		assert.ErrorIs(t, err, ErrSilent)
 	})

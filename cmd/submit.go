@@ -74,7 +74,7 @@ In the editor, new PRs default to ready for review; switch any to draft with the
 }
 
 func runSubmit(cfg *config.Config, opts *submitOptions) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack

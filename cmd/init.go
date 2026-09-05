@@ -57,7 +57,7 @@ Use --base to specify a different trunk branch.`,
 }
 
 func runInit(cfg *config.Config, opts *initOptions) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack

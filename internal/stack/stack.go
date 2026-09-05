@@ -310,6 +310,34 @@ func stackFilePath(gitDir string) string {
 	return filepath.Join(gitDir, stackFileName)
 }
 
+// MigrateFromWorktree moves a stack file that an older gh-stack wrote into a
+// linked worktree's private git directory over to commonDir, where every
+// worktree of the repository can see it. It reports whether a file was moved.
+//
+// It is a no-op when the two directories are the same, when the worktree holds
+// no stack file, or when commonDir already has one — in that last case the
+// shared file wins and the worktree copy is left untouched for the user to
+// inspect or delete.
+func MigrateFromWorktree(worktreeGitDir, commonDir string) (bool, error) {
+	if worktreeGitDir == "" || commonDir == "" || worktreeGitDir == commonDir {
+		return false, nil
+	}
+	data, err := os.ReadFile(stackFilePath(worktreeGitDir))
+	if err != nil {
+		return false, nil // nothing to migrate (including "not a worktree")
+	}
+	if _, err := os.Stat(stackFilePath(commonDir)); err == nil {
+		return false, nil
+	}
+	if err := os.WriteFile(stackFilePath(commonDir), data, 0644); err != nil {
+		return false, fmt.Errorf("copying stack file to %s: %w", commonDir, err)
+	}
+	if err := os.Remove(stackFilePath(worktreeGitDir)); err != nil {
+		return true, fmt.Errorf("removing worktree stack file: %w", err)
+	}
+	return true, nil
+}
+
 // Load reads the stack file from the given git directory.
 // Returns an empty StackFile if the file does not exist.
 // The returned StackFile records a checksum of the on-disk content so that

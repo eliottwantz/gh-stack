@@ -289,6 +289,16 @@ gh extension install github/gh-stack
 
 See the [CLI Reference](/gh-stack/reference/cli/) for the full command documentation.
 
+### Can I use git worktrees, with one worktree per PR?
+
+Yes. Stack metadata lives in the repository's shared git directory, so a stack created with `gh stack init` in any worktree is visible from all of them.
+
+`gh stack sync` and `gh stack rebase` rebase each branch inside the worktree that has it checked out, rather than checking branches out in the current one, and stop with an explanation before rewriting anything if one of those worktrees has uncommitted changes or a rebase in progress. If a rebase conflicts, resolve it in the worktree it stopped in; `--continue` and `--abort` then work from any worktree.
+
+`gh stack modify` and `gh stack sync --prune` are the exceptions — renaming, reordering, dropping, and deleting a branch require it not to be checked out elsewhere, and both tell you which worktree is holding it.
+
+See [Working with Git Worktrees](/gh-stack/guides/workflows/#working-with-git-worktrees) for the full workflow.
+
 ### Do I need to use the GitHub CLI?
 
 No. Stacked PRs are built on standard git branches and regular pull requests. You can create and manage them manually with `git` and the GitHub UI. The CLI just makes the workflow much simpler — especially for rebasing, pushing, and creating PRs with the correct base branches.

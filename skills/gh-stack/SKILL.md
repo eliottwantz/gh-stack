@@ -102,6 +102,16 @@ Pruning never happens without `--prune` when non-interactive. If the local and r
 diverged, `sync` prints both chains, makes no changes, and exits 0 with `Sync aborted` — see
 `references/troubleshooting.md`.
 
+## Worktrees
+
+A stack is shared by every worktree of the repository, so `init` in one is visible from all. `sync`
+and `rebase` rebase a branch inside the worktree that has it checked out; that worktree's working
+tree follows the rewrite. They exit 1 without rewriting anything when such a worktree is dirty or
+mid-rebase, naming the directory — commit or stash there (`git -C <dir> stash`) and rerun. Resolve
+conflicts in the directory the rebase stopped in, then `--continue` from anywhere. Navigation
+commands never cross worktrees; they print the directory to `cd` into. See
+`references/troubleshooting.md`.
+
 ## Merging
 
 Scope the merge with an argument:
@@ -178,4 +188,5 @@ Open the reference whose trigger matches the task; no need to preload all three.
 - `references/commands.md` — read when a command fails unexpectedly or you need its preconditions,
   side effects, atomicity, or ordering guarantees.
 - `references/troubleshooting.md` — read on a rebase conflict, after a squash-merge, on local and
-  remote divergence, when restructuring a stack, or when driving stacks from another tool.
+  remote divergence, when restructuring a stack, when branches live in other worktrees, or when
+  driving stacks from another tool.

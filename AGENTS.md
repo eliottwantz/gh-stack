@@ -32,12 +32,13 @@ cmd/                         # Cobra commands (one file per command + tests)
   utils.go                   # shared helpers, ExitError types, exit codes
 internal/
   git/                       # git.Ops interface + defaultOps (exec-based)
-    gitops.go                # Ops interface (52 methods)
+    gitops.go                # Ops interface (69 methods)
+    worktree.go              # `git worktree list` parsing, per-worktree git dirs
     mock_ops.go              # MockOps. Each method has a corresponding *Fn field.
   github/                    # github.ClientOps interface + real Client
     client_interface.go      # ClientOps interface (18 methods)
     mock_client.go           # MockClient. Uses function-pointer fields for testing.
-  stack/                     # stack file (.git/gh-stack) management, JSON schema, locking
+  stack/                     # stack file (git common dir/gh-stack) management, JSON schema, locking
     schema.json              # JSON Schema for the stack file format
   config/                    # Config struct (I/O, colors, test overrides)
     testing.go               # NewTestConfig(). Returns *Config + stdout/stderr pipes.
@@ -108,16 +109,16 @@ if errors.As(err, &exitErr) { ... }
 
 ### Key interfaces
 
-- **`git.Ops`** (`internal/git/gitops.go`): 52 methods wrapping git CLI calls. The production implementation uses `cli/go-gh`'s `client.Command()` via `run()` and `runSilent()` helpers. Package-level functions (e.g., `git.CurrentBranch()`) delegate to a swappable package-level `ops` variable.
+- **`git.Ops`** (`internal/git/gitops.go`): 69 methods wrapping git CLI calls. The production implementation uses `cli/go-gh`'s `client.Command()` via `run()` and `runSilent()` helpers. Package-level functions (e.g., `git.CurrentBranch()`) delegate to a swappable package-level `ops` variable. Methods ending in `InDir` run inside another worktree (`git -C <dir>`); their unscoped counterparts delegate to them with an empty dir, and `MockOps` falls back the same way so tests only stub the variant they care about.
 - **`github.ClientOps`** (`internal/github/client_interface.go`): 18 methods for GitHub API (PRs, stacks, merges). Stack operations use the public Stacks REST API (`/repos/{owner}/{repo}/stacks`): `ListStacks`, `FindStackForPR`, `GetStack`, `CreateStack`, `AddToStack` (delta append), `Unstack`. Async stack merges use `RepoMergeConfig` (GraphQL: allowed merge methods + viewer's default), `BaseBranchUsesMergeQueue` (GraphQL: detects a base-branch merge queue to select the explicit `merge_action`), `MergeStackAsync`, and `GetAsyncMergeResult` (`/repos/{owner}/{repo}/pulls/{n}/merge-async`). Injected via `cfg.GitHubClientOverride` in tests.
 - **`config.Config`** (`internal/config/config.go`): Central configuration passed to all commands. Holds I/O streams, color functions, and test hook fields (`SelectFn`, `ConfirmFn`, `InputFn`, `RepoOverride`).
 
 ### Stack file
 
-- **Location:** `.git/gh-stack` (JSON format, schema version 1).
+- **Location:** `gh-stack` in the git **common** directory (`git rev-parse --git-common-dir`), i.e. `.git/gh-stack` in an ordinary clone and the same shared file from every linked worktree. Always resolve it with `stackDir(cfg)` (`cmd/worktree.go`), never `git.GitDir()`.
 - **Schema:** `internal/stack/schema.json`.
 - **Identity:** each stack stores GitHub's global `id` (string) and repo-scoped `number` (int, shown in the GitHub UI and used as the primary way to reference a stack, e.g. `gh stack checkout <number>`). `number` may be `0` for stack files created before it was tracked; it is backfilled from the API on the next stack operation.
-- **Locking:** Exclusive file lock at `.git/gh-stack.lock` with 5-second timeout. Errors surface as `LockError`.
+- **Locking:** Exclusive file lock at `gh-stack.lock` next to the stack file, with a 5-second timeout. Errors surface as `LockError`. Because the file is shared, the lock also serializes two worktrees running gh-stack at once.
 - **Staleness:** Concurrent modifications detected via `StaleError`.
 
 ## CI workflows (`.github/workflows/`)
@@ -135,3 +136,7 @@ if errors.As(err, &exitErr) { ... }
 - Interrupt detection: Ctrl+C is caught as `terminal.InterruptErr`, wrapped into an `errInterrupt` sentinel, and printed with a friendly message before a silent exit.
 - Rerere: on first rebase conflict, the user is prompted to enable `git rerere`. If declined, a flag file prevents future prompts. `tryAutoResolveRebase()` loops up to 1000 times auto-continuing when rerere resolves conflicts.
 - The `.gitignore` ignores `/gh-stack` and `/gh-stack.exe` (the built binary).
+- Worktrees: state that describes the *repository* (the stack file and its lock, `gh-stack-rebase-state`, `gh-stack-modify-state`) lives in the common dir, so it is shared. State that describes a *checkout* (a rebase or cherry-pick in progress) stays in the per-worktree git dir and is read with the `InDir` ops. `stackDir()` also migrates a stack file left in a worktree's private git dir by an older version.
+- `cmd/worktree.go` owns the worktree logic: `newWorktreeIndex(currentBranch)` maps branch → owning worktree, `checkWorktreesReady()` is the preflight that refuses to start a cascade when another worktree is dirty or mid-rebase, and `worktreeIndex.DirFor(branch)` decides whether a rebase/reset/fast-forward runs here or via `-C <dir>`.
+- A worktree that is mid-rebase has a **detached** HEAD, so `git worktree list` reports no branch for it. `git.RebasingBranchIn(dir)` recovers the branch name from `<gitdir>/rebase-merge/head-name`; without it a cascade would happily rewrite a branch another worktree is in the middle of rebasing.
+- Never use `git branch -f` (`git.UpdateBranchRef`) on a branch another worktree holds: git refuses it, and forcing it would leave that worktree's index and working tree pointing at the old commit. Use `git.MergeFFIn` or `git.ResetHardIn` instead.

@@ -146,7 +146,8 @@ func runModify(cfg *config.Config) error {
 			cfg.Warningf("Rebasing %s — conflict", conflict.Branch)
 		}
 
-		printConflictDetailsWithContinue(cfg, conflict.Branch, "gh stack modify --continue")
+		// modify applies its plan in the current worktree, so conflicts are here.
+		printConflictDetailsWithContinue(cfg, conflict.Branch, "", "gh stack modify --continue")
 		cfg.Printf("")
 
 		cfg.Printf("Or restore the stack to its pre-modify state with `%s`",
@@ -201,7 +202,7 @@ func printModifySuccess(cfg *config.Config, result *modifyview.ApplyResult) {
 
 // runModifyAbort handles recovery to a pre-modify state.
 func runModifyAbort(cfg *config.Config) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack
@@ -253,7 +254,7 @@ func runModifyAbort(cfg *config.Config) error {
 
 // runModifyContinue continues applying after the user resolves a rebase conflict.
 func runModifyContinue(cfg *config.Config) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack
@@ -308,6 +309,15 @@ func checkModifyPreconditions(cfg *config.Config) (*loadStackResult, error) {
 		cfg.Errorf("uncommitted changes in working tree")
 		cfg.Printf("Commit or stash your changes before running modify")
 		return nil, ErrSilent
+	}
+
+	// modify rewrites, renames, and deletes branches from this worktree, which
+	// git refuses for a branch another worktree has checked out. Unlike a
+	// cascade rebase there is no per-branch worktree to fall back to (a renamed
+	// or dropped branch would leave that checkout dangling), so require the
+	// stack's branches to be free before starting.
+	if err := checkNoBranchesInOtherWorktrees(cfg, result.CurrentBranch, s); err != nil {
+		return nil, err
 	}
 
 	// Ensure trunk branch exists locally (it may be absent if the user

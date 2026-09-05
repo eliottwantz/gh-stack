@@ -110,7 +110,8 @@ func runNavigate(cfg *config.Config, delta int) error {
 			}
 			target := s.Branches[targetIdx].Branch
 			if err := git.CheckoutBranch(target); err != nil {
-				return err
+				reportCheckoutFailure(cfg, target, err)
+				return ErrSilent
 			}
 			cfg.Successf("Switched to %s", target)
 			return nil
@@ -186,7 +187,8 @@ func runNavigate(cfg *config.Config, delta int) error {
 
 	target := s.Branches[newIdx].Branch
 	if err := git.CheckoutBranch(target); err != nil {
-		return err
+		reportCheckoutFailure(cfg, target, err)
+		return ErrSilent
 	}
 
 	if skipped > 0 {
@@ -240,7 +242,8 @@ func runNavigateToEnd(cfg *config.Config, top bool) error {
 	}
 
 	if err := git.CheckoutBranch(target); err != nil {
-		return err
+		reportCheckoutFailure(cfg, target, err)
+		return ErrSilent
 	}
 
 	if s.Branches[targetIdx].IsMerged() {
