@@ -235,7 +235,7 @@ func resolveMergeStack(cfg *config.Config, client github.ClientOps, args []strin
 // resolveActiveRemoteStack reads only the local stack number for the current
 // branch, then fetches the full stack (and its PR states) from GitHub.
 func resolveActiveRemoteStack(cfg *config.Config, client github.ClientOps) (*github.RemoteStack, error) {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return nil, ErrNotInStack

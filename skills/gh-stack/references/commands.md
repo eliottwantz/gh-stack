@@ -74,7 +74,8 @@ first non-merged ancestor, then links them into a Stack on GitHub.
 ## link
 
 Creates or updates a stack on GitHub **without any local tracking state**. This is the path for
-branches managed by another tool or living in another worktree — see `troubleshooting.md`.
+branches managed by another tool — see `troubleshooting.md`. Worktrees do not need it: local
+tracking is shared across every worktree of the repository.
 
 - Arguments are given bottom to top. Each is a branch name or a PR number; a numeric argument is
   tried as a PR number first and falls back to a branch name.
@@ -103,7 +104,11 @@ The routine command. Steps, in order:
 7. **Sync the stack object** — link open PRs into a stack, additively. Only when two or more PRs
    exist. `sync` never opens PRs; that is `submit`.
 8. **Prune** local branches for merged PRs, only when `--prune` is passed in a non-interactive
-   environment.
+   environment. Branches another worktree has checked out are kept, with a warning.
+
+Branches held by other worktrees are fast-forwarded and rebased inside those worktrees. When a
+rebase is needed and one of them is dirty or mid-rebase, `sync` exits **1** before rewriting
+anything and names the directory — see `troubleshooting.md`.
 
 ## rebase
 
@@ -119,6 +124,9 @@ to rebase only part of the stack.
 - A merged PR is detected automatically and replayed with `--onto` against the correct target, so a
   squash-merged parent does not produce spurious conflicts.
 - Starting a rebase while one is in progress exits **7**.
+- Branches checked out in other worktrees are rebased there. A conflict is resolved in that
+  directory (the printed paths are absolute), but `--continue` and `--abort` still work from any
+  worktree. Exits **1** before the first rewrite if such a worktree is dirty or mid-rebase.
 
 ## view
 
@@ -175,3 +183,6 @@ count (`gh stack up 3`). Movement clamps at the stack bounds, and merged branche
 navigating from an active branch, so `bottom` lands on the lowest *unmerged* branch.
 
 `gh stack switch` is a selection menu with no non-interactive path. Use the commands above instead.
+
+Navigation never crosses worktrees. When the target branch is checked out in another worktree the
+command exits **1** and prints the directory to `cd` into.

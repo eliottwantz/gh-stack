@@ -62,6 +62,26 @@ When you submit, `gh stack` creates one PR per branch and links them together as
 
 Stack metadata is stored in `.git/gh-stack` (a JSON file, not committed to the repo). This tracks which branches belong to which stack and their ordering. Rebase state during interrupted rebases is stored separately in `.git/gh-stack-rebase-state`.
 
+Both files live in the repository's shared git directory, so every worktree of the repository sees the same stacks.
+
+### Worktrees
+
+`gh stack` works with [git worktrees](https://git-scm.com/docs/git-worktree), including the one-worktree-per-PR workflow:
+
+```sh
+git worktree add ../auth-layer auth-layer
+git worktree add ../api-endpoints api-endpoints
+```
+
+- A stack created with `gh stack init` in any worktree is visible from all of them.
+- `gh stack sync` and `gh stack rebase` rebase each branch **inside the worktree that has it checked out**, instead of checking branches out here. That worktree's working tree follows the rewrite, so it is never left on a stale commit.
+- Before rewriting anything, both commands check that the other worktrees are ready. If one has uncommitted changes or a rebase in progress, the command stops and names it rather than rewriting part of the stack.
+- If a rebase conflicts in another worktree, resolve it there. `gh stack rebase --continue` and `--abort` can then be run from any worktree — they know where the rebase is.
+- `gh stack sync --prune` skips deleting merged branches that a worktree still has checked out. Remove the worktree with `git worktree remove` to prune them.
+- Navigation commands (`checkout`, `switch`, `up`, `down`, `top`, `bottom`, `trunk`) do not move you between worktrees; when a branch belongs to another one, they point you at its directory.
+
+`gh stack modify` renames, drops, and reorders branches, which cannot be delegated to another worktree. It stops and lists any stack branch that another worktree holds, so you can switch that worktree to another branch or `git worktree remove` it first.
+
 ## Commands
 
 ### `gh stack init`

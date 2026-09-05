@@ -88,7 +88,7 @@ func runSwitch(cfg *config.Config) error {
 	}
 
 	if err := git.CheckoutBranch(targetBranch); err != nil {
-		cfg.Errorf("failed to checkout %s: %v", targetBranch, err)
+		reportCheckoutFailure(cfg, targetBranch, err)
 		return ErrSilent
 	}
 

@@ -27,6 +27,8 @@ var ErrRemoteBranchNotFound = errors.New("remote branch not found")
 // Tests can substitute a mock via SetOps().
 type Ops interface {
 	GitDir() (string, error)
+	CommonDir() (string, error)
+	Worktrees() ([]Worktree, error)
 	RootDir() (string, error)
 	CurrentBranch() (string, error)
 	BranchExists(name string) bool
@@ -83,6 +85,22 @@ type Ops interface {
 	IsCherryPickInProgress() bool
 	HasUncommittedChanges() (bool, error)
 	LogMerges(base, head string) ([]CommitInfo, error)
+
+	// Worktree-scoped variants. A branch checked out in another worktree
+	// cannot be rebased, reset, or checked out from this one, so these run
+	// the operation inside the worktree that owns the branch. An empty dir
+	// means the current working directory, making them drop-in replacements
+	// for their unscoped counterparts.
+	RebaseInDir(dir, base string, opts RebaseOpts) error
+	RebaseOntoInDir(dir, newBase, oldBase, branch string, opts RebaseOpts) error
+	RebaseContinueInDir(dir string, opts RebaseOpts) error
+	RebaseAbortInDir(dir string) error
+	IsRebaseInProgressInDir(dir string) bool
+	RebasingBranchInDir(dir string) (string, error)
+	ConflictedFilesInDir(dir string) ([]string, error)
+	ResetHardInDir(dir, ref string) error
+	MergeFFInDir(dir, target string) error
+	HasUncommittedChangesInDir(dir string) (bool, error)
 }
 
 // defaultOps implements Ops by delegating to the real git client and helpers.
@@ -270,12 +288,18 @@ func (d *defaultOps) ResolveRemote(branch string) (string, error) {
 }
 
 func (d *defaultOps) Rebase(base string, opts RebaseOpts) error {
+	return d.RebaseInDir("", base, opts)
+}
+
+// RebaseInDir rebases the branch checked out in dir onto base. An empty dir
+// rebases the current working directory's branch.
+func (d *defaultOps) RebaseInDir(dir, base string, opts RebaseOpts) error {
 	args := []string{"rebase"}
 	if opts.CommitterDateIsAuthorDate {
 		args = append(args, "--committer-date-is-author-date")
 	}
 	args = append(args, base)
-	return runRebaseCommand(args, opts)
+	return runRebaseCommand(dir, args, opts)
 }
 
 func (d *defaultOps) EnableRerere() error {
@@ -323,33 +347,55 @@ func (d *defaultOps) ClearRemote() error {
 }
 
 func (d *defaultOps) RebaseOnto(newBase, oldBase, branch string, opts RebaseOpts) error {
+	return d.RebaseOntoInDir("", newBase, oldBase, branch, opts)
+}
+
+// RebaseOntoInDir runs the three-argument rebase form inside dir. git refuses
+// to rewrite a branch that another worktree has checked out, so dir must be the
+// worktree that owns branch (or empty when no worktree does).
+func (d *defaultOps) RebaseOntoInDir(dir, newBase, oldBase, branch string, opts RebaseOpts) error {
 	args := []string{"rebase"}
 	if opts.CommitterDateIsAuthorDate {
 		args = append(args, "--committer-date-is-author-date")
 	}
 	args = append(args, "--onto", newBase, oldBase, branch)
-	return runRebaseCommand(args, opts)
+	return runRebaseCommand(dir, args, opts)
 }
 
 func (d *defaultOps) RebaseContinue(opts RebaseOpts) error {
-	err := rebaseContinueOnce(opts)
+	return d.RebaseContinueInDir("", opts)
+}
+
+func (d *defaultOps) RebaseContinueInDir(dir string, opts RebaseOpts) error {
+	err := rebaseContinueOnce(dir, opts)
 	if err == nil {
 		return nil
 	}
-	return tryAutoResolveRebase(err, opts)
+	return tryAutoResolveRebase(dir, err, opts)
 }
 
 func (d *defaultOps) RebaseAbort() error {
-	return runSilent("rebase", "--abort")
+	return d.RebaseAbortInDir("")
+}
+
+func (d *defaultOps) RebaseAbortInDir(dir string) error {
+	return runSilentIn(dir, "rebase", "--abort")
 }
 
 func (d *defaultOps) IsRebaseInProgress() bool {
-	gitDir, err := GitDir()
+	return d.IsRebaseInProgressInDir("")
+}
+
+// IsRebaseInProgressInDir reports whether the worktree rooted at dir has a
+// rebase in progress. Rebase state is per-worktree, so this consults that
+// worktree's own git directory rather than the shared common directory.
+func (d *defaultOps) IsRebaseInProgressInDir(dir string) bool {
+	gitDir, err := gitDirIn(dir)
 	if err != nil {
 		return false
 	}
-	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
-		rebasePath := filepath.Join(gitDir, dir)
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		rebasePath := filepath.Join(gitDir, name)
 		if info, err := os.Stat(rebasePath); err == nil && info.IsDir() {
 			return true
 		}
@@ -358,7 +404,11 @@ func (d *defaultOps) IsRebaseInProgress() bool {
 }
 
 func (d *defaultOps) ConflictedFiles() ([]string, error) {
-	output, err := run("diff", "--name-only", "--diff-filter=U")
+	return d.ConflictedFilesInDir("")
+}
+
+func (d *defaultOps) ConflictedFilesInDir(dir string) ([]string, error) {
+	output, err := runIn(dir, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +633,13 @@ func (d *defaultOps) DeleteTrackingRef(remote, branch string) error {
 }
 
 func (d *defaultOps) ResetHard(ref string) error {
-	return runSilent("reset", "--hard", ref)
+	return d.ResetHardInDir("", ref)
+}
+
+// ResetHardInDir resets the branch checked out in dir to ref, updating that
+// worktree's files. Use it to restore a branch another worktree owns.
+func (d *defaultOps) ResetHardInDir(dir, ref string) error {
+	return runSilentIn(dir, "reset", "--hard", ref)
 }
 
 func (d *defaultOps) SetUpstreamTracking(branch, remote string) error {
@@ -595,7 +651,14 @@ func (d *defaultOps) UpstreamRemote(branch string) (string, error) {
 }
 
 func (d *defaultOps) MergeFF(target string) error {
-	return runSilent("merge", "--ff-only", target)
+	return d.MergeFFInDir("", target)
+}
+
+// MergeFFInDir fast-forwards the branch checked out in dir to target. A branch
+// another worktree has checked out cannot be moved with `git branch -f`, so it
+// has to be advanced from inside that worktree.
+func (d *defaultOps) MergeFFInDir(dir, target string) error {
+	return runSilentIn(dir, "merge", "--ff-only", target)
 }
 
 func (d *defaultOps) UpdateBranchRef(branch, sha string) error {
@@ -679,7 +742,11 @@ func (d *defaultOps) IsCherryPickInProgress() bool {
 }
 
 func (d *defaultOps) HasUncommittedChanges() (bool, error) {
-	out, err := run("status", "--porcelain")
+	return d.HasUncommittedChangesInDir("")
+}
+
+func (d *defaultOps) HasUncommittedChangesInDir(dir string) (bool, error) {
+	out, err := runIn(dir, "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}

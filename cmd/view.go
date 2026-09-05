@@ -101,7 +101,7 @@ func runView(cfg *config.Config, opts *viewOptions) error {
 // It resolves the stack directly and returns typed exit codes when the
 // branch is not part of any stack or belongs to multiple stacks.
 func runViewJSON(cfg *config.Config) error {
-	gitDir, err := git.GitDir()
+	gitDir, err := stackDir(cfg)
 	if err != nil {
 		cfg.Errorf("not a git repository")
 		return ErrNotInStack
@@ -330,7 +330,7 @@ func viewFullTUI(cfg *config.Config, s *stack.Stack, currentBranch string, prDet
 	if m, ok := finalModel.(stackview.Model); ok {
 		if branch := m.CheckoutBranch(); branch != "" {
 			if err := git.CheckoutBranch(branch); err != nil {
-				cfg.Errorf("failed to checkout %s: %v", branch, err)
+				reportCheckoutFailure(cfg, branch, err)
 			} else {
 				cfg.Successf("Switched to %s", branch)
 			}

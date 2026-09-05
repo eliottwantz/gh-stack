@@ -37,6 +37,8 @@ When explicit branch names are given, existing branches are adopted automaticall
 
 Enables `git rerere` automatically so that conflict resolutions are remembered across rebases.
 
+The stack is recorded in the repository's shared git directory, so it is available from every worktree of the repository, not just the one `init` was run in.
+
 **Examples:**
 
 ```sh
@@ -183,9 +185,10 @@ The command checks these conditions before opening the TUI:
 
 1. Must have an active stack checked out locally
 2. Working tree must be clean (no uncommitted changes)
-3. No rebase in progress
-4. No PR in the stack is queued for merge
-5. Commit history must be linear (no merge commits, no diverged branches)
+3. No branch in the stack is checked out in another worktree (renaming, reordering, and dropping cannot be delegated to another worktree)
+4. No rebase in progress
+5. No PR in the stack is queued for merge
+6. Commit history must be linear (no merge commits, no diverged branches)
 
 **Operations:**
 
@@ -326,6 +329,8 @@ Performs a synchronization of the entire stack:
 
 A clean remote-ahead update (PRs added on top of your local stack) is pulled down automatically without prompting, so `sync` is safe to run in automation. Sync only prompts when the stacks have truly diverged.
 
+Branches that other worktrees have checked out are fast-forwarded and rebased inside those worktrees. If a rebase is needed and one of them has uncommitted changes or a rebase in progress, sync reports it and stops before rewriting any branch. `--prune` skips (and reports) merged branches a worktree still holds. See [Working with Git Worktrees](/gh-stack/guides/workflows/#working-with-git-worktrees).
+
 **Diverged stacks**
 
 When neither stack is a clean prefix of the other — for example, you added a branch locally while separate PRs were added to the same stack on GitHub — sync cannot merge the two automatically. In an interactive terminal it offers three choices:
@@ -372,6 +377,8 @@ Fetches the latest changes from `origin`, then ensures each branch in the stack 
 If a branch's PR has been merged, the rebase automatically switches to `--onto` mode to correctly replay commits on top of the merge target.
 
 If a rebase conflict occurs, the operation pauses and prints the conflicted files with line numbers. Resolve the conflicts, stage with `git add`, and continue with `--continue`. To undo the entire rebase, use `--abort` to restore all branches to their pre-rebase state.
+
+Branches checked out in other worktrees are rebased inside those worktrees, so their working trees follow the rewrite. The command stops before the first rewrite if one of them has uncommitted changes or a rebase in progress. When a conflict happens in another worktree, its path is printed with the conflicted files — resolve them there, then run `--continue` (or `--abort`) from any worktree. See [Working with Git Worktrees](/gh-stack/guides/workflows/#working-with-git-worktrees).
 
 **Examples:**
 

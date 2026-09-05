@@ -7,7 +7,8 @@
 - [Local and remote stacks have diverged](#local-and-remote-stacks-have-diverged)
 - [Restructuring a stack](#restructuring-a-stack)
 - [Branch belongs to several stacks (exit 6)](#branch-belongs-to-several-stacks-exit-6)
-- [Driving stacks from another tool or worktree](#driving-stacks-from-another-tool-or-worktree)
+- [Worktrees: one checkout per branch](#worktrees-one-checkout-per-branch)
+- [Driving stacks from another tool](#driving-stacks-from-another-tool)
 - [Stack file is locked (exit 8)](#stack-file-is-locked-exit-8)
 - [An interrupted modify session (exit 10)](#an-interrupted-modify-session-exit-10)
 
@@ -124,11 +125,44 @@ gh stack checkout <a-branch-unique-to-the-intended-stack>
 Then rerun. Commands that take an explicit stack number (`merge 7`, `unstack 7`) sidestep the
 problem entirely, since they do not infer the stack from the current branch.
 
-## Driving stacks from another tool or worktree
+## Worktrees: one checkout per branch
+
+Stack state lives in the repository's shared git directory, so a stack is visible from every
+worktree. `sync` and `rebase` rebase a branch **inside the worktree that has it checked out** rather
+than checking it out here, and that worktree's working tree follows the rewrite.
+
+Both commands refuse to start — before rewriting anything — when a worktree holding one of the
+branches is dirty or mid-rebase:
+
+```
+✗ some branches are checked out in worktrees that cannot be rebased right now:
+  feature-b — uncommitted changes in /path/to/wt-b
+```
+
+Nothing has been rewritten at that point. Commit or stash in the named directory (`git -C
+/path/to/wt-b stash`) and rerun.
+
+A conflict is resolved in the worktree the rebase stopped in; the printed paths are already absolute:
+
+```bash
+git -C /path/to/wt-b add <resolved paths>
+gh stack rebase --continue        # works from any worktree
+```
+
+Other worktree-specific behavior:
+
+- `sync --prune` will not delete a merged branch a worktree still holds; it warns instead. Run
+  `git worktree remove <dir>` first.
+- `modify` requires every branch of the stack to be free, since renames and drops cannot be
+  delegated. It lists the worktrees to release.
+- `checkout`, `switch`, `up`, `down`, `top`, `bottom`, and `trunk` never move between worktrees.
+  When a branch belongs to another one they exit 1 and print `cd <dir>`; work there instead.
+
+## Driving stacks from another tool
 
 `gh stack link` creates and updates stacks purely through the API, with no local tracking state.
-Use it when branches are managed by jj, Sapling, git-town, a separate worktree, or any workflow
-where the local `.git/gh-stack` file would be wrong or absent.
+Use it when branches are managed by jj, Sapling, git-town, or any workflow where the local
+`.git/gh-stack` file would be wrong or absent.
 
 ```bash
 gh stack link branch-a branch-b branch-c        # bottom to top
@@ -144,7 +178,9 @@ will not work on the result. Use `gh stack checkout <stack-number>` if you later
 
 Another `gh stack` process holds the exclusive lock on `.git/gh-stack.lock`. The lock times out
 after about five seconds, so wait and retry. A persistent exit 8 means another process still holds
-the lock; identify and stop that process before retrying.
+the lock; identify and stop that process before retrying. The lock is shared by every worktree of
+the repository, so the other process may be running in a different directory — a real possibility
+when several agents work on the same stack at once.
 
 ## An interrupted modify session (exit 10)
 

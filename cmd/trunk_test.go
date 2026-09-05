@@ -146,14 +146,14 @@ func TestTrunk_CheckoutFailure(t *testing.T) {
 	restore := git.SetOps(mock)
 	defer restore()
 
-	cfg, _, _ := config.NewTestConfig()
+	cfg, outR, errR := config.NewTestConfig()
 	cmd := TrunkCmd(cfg)
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	err := cmd.Execute()
 
-	assert.Error(t, err)
-	assert.ErrorContains(t, err, "checkout failed")
+	assert.ErrorIs(t, err, ErrSilent)
+	assert.Contains(t, readCfgOutput(cfg, outR, errR), "checkout failed")
 }
 
 func TestTrunk_CustomTrunkBranch(t *testing.T) {
