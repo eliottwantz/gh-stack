@@ -1,0 +1,22 @@
+[tools]
+go = "latest"
+
+[tasks.build]
+description = "Build the extension"
+run = "go build -o gh-stack ."
+sources = ["main.go", "cmd/**/*.go", "internal/**/*.go"]
+outputs = ["gh-stack"]
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.test]
+description = "Run tests with race detector"
+run = "go test -race -count=1 ./..."
+depends = ["vet"]
+
+[tasks.install]
+description = "Install the extension"
+run = "gh extension remove stack || true && gh extension install ."
+depends = ["build"]
