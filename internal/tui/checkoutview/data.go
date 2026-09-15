@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/github/gh-stack/internal/github"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/github"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 )
 
 // StackType classifies where a stack lives.

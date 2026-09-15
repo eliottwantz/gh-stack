@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/github/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

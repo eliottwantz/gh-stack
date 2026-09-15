@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 )
 
 // stackDir returns the directory gh-stack keeps its state in: the git common

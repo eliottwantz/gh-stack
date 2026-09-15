@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	ghapi "github.com/github/gh-stack/internal/github"
-	"github.com/github/gh-stack/internal/stack"
-	"github.com/github/gh-stack/internal/tui/stackview"
+	ghapi "github.com/eliottwantz/gh-stack/internal/github"
+	"github.com/eliottwantz/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

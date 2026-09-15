@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/browser"
-	"github.com/github/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/config"
 	"github.com/spf13/cobra"
 )
 

@@ -1,4 +1,4 @@
-module github.com/github/gh-stack
+module github.com/eliottwantz/gh-stack
 
 go 1.26.0
 

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/github/gh-stack/internal/git"
-	ghapi "github.com/github/gh-stack/internal/github"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	ghapi "github.com/eliottwantz/gh-stack/internal/github"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 )
 
 // BranchNodeData is the interface for branch data that can be rendered.

@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/github/gh-stack/internal/stack"
-	"github.com/github/gh-stack/internal/tui/shared"
+	"github.com/eliottwantz/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/tui/shared"
 )
 
 // keyMap defines the key bindings for the stack view.

@@ -11,7 +11,7 @@
 package submitview
 
 import (
-	"github.com/github/gh-stack/internal/tui/stackview"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 )
 
 // BranchState classifies a branch by the status of its pull request. The state

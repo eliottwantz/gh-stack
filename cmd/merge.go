@@ -10,11 +10,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cli/go-gh/v2/pkg/api"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/github"
-	"github.com/github/gh-stack/internal/stack"
-	"github.com/github/gh-stack/internal/tui/mergeview"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/github"
+	"github.com/eliottwantz/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/tui/mergeview"
 	"github.com/spf13/cobra"
 )
 

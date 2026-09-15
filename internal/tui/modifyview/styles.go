@@ -3,7 +3,7 @@ package modifyview
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/github/gh-stack/internal/tui/shared"
+	"github.com/eliottwantz/gh-stack/internal/tui/shared"
 )
 
 // Colors come from the background-aware palette in internal/tui/shared so the

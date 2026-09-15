@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/github/gh-stack/internal/tui/shared"
+	"github.com/eliottwantz/gh-stack/internal/tui/shared"
 )
 
 // tab identifies the active filter tab.

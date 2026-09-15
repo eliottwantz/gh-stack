@@ -3,9 +3,9 @@ package modify
 import (
 	"fmt"
 
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 )
 
 // CheckNoMergeQueuePRs checks that no unmerged PR in the stack is currently queued.

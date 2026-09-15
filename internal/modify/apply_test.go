@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/stack"
-	"github.com/github/gh-stack/internal/tui/modifyview"
-	"github.com/github/gh-stack/internal/tui/stackview"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/tui/modifyview"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

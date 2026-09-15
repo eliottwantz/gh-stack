@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/github/gh-stack/internal/tui/shared"
+	"github.com/eliottwantz/gh-stack/internal/tui/shared"
 )
 
 // currentNode returns a pointer to the focused node, or nil.

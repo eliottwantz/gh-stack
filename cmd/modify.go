@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/modify"
-	"github.com/github/gh-stack/internal/tui/modifyview"
-	"github.com/github/gh-stack/internal/tui/stackview"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/modify"
+	"github.com/eliottwantz/gh-stack/internal/tui/modifyview"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 	"github.com/spf13/cobra"
 )
 

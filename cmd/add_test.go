@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

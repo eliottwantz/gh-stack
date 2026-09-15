@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/stack"
-	"github.com/github/gh-stack/internal/tui/modifyview"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/tui/modifyview"
 )
 
 // BuildSnapshot captures the current state of the stack for unwind/recovery.

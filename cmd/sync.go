@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/prompter"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
-	"github.com/github/gh-stack/internal/modify"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/modify"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 	"github.com/spf13/cobra"
 )
 

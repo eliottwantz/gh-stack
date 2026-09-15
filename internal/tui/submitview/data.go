@@ -3,7 +3,7 @@ package submitview
 import (
 	"strings"
 
-	"github.com/github/gh-stack/internal/tui/stackview"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 )
 
 // DeriveState classifies a branch node into a BranchState using both the stack's

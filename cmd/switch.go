@@ -6,8 +6,8 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/cli/go-gh/v2/pkg/text"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/git"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/git"
 	"github.com/spf13/cobra"
 )
 

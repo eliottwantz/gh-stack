@@ -1,7 +1,7 @@
 package modifyview
 
 import (
-	"github.com/github/gh-stack/internal/tui/stackview"
+	"github.com/eliottwantz/gh-stack/internal/tui/stackview"
 )
 
 // ActionType represents the type of modification action.

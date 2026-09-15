@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/github/gh-stack/internal/tui/shared"
+	"github.com/eliottwantz/gh-stack/internal/tui/shared"
 )
 
 // maxStatusBoxes caps the number of cells in the status bar. The bar is a

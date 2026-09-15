@@ -1,6 +1,6 @@
 package shared
 
-import "github.com/github/gh-stack/internal/theme"
+import "github.com/eliottwantz/gh-stack/internal/theme"
 
 // The background-aware color palette lives in internal/theme so it can be shared
 // by both the TUIs and ordinary command output. These aliases keep the TUI code

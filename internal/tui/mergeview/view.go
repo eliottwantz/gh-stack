@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/github/gh-stack/internal/theme"
+	"github.com/eliottwantz/gh-stack/internal/theme"
 )
 
 var (

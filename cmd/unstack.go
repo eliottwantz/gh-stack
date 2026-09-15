@@ -5,10 +5,10 @@ import (
 	"strconv"
 
 	"github.com/cli/go-gh/v2/pkg/api"
-	"github.com/github/gh-stack/internal/config"
-	"github.com/github/gh-stack/internal/github"
-	"github.com/github/gh-stack/internal/modify"
-	"github.com/github/gh-stack/internal/stack"
+	"github.com/eliottwantz/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/github"
+	"github.com/eliottwantz/gh-stack/internal/modify"
+	"github.com/eliottwantz/gh-stack/internal/stack"
 	"github.com/spf13/cobra"
 )
 

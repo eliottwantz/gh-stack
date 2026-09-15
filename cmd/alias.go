@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/github/gh-stack/internal/config"
+	"github.com/eliottwantz/gh-stack/internal/config"
 	"github.com/spf13/cobra"
 )
 
